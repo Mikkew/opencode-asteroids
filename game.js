@@ -12,7 +12,7 @@ const justPressed = {};
 window.addEventListener('keydown', e => {
   justPressed[e.code] = !keys[e.code];
   keys[e.code] = true;
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code))
+  if (['Space', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code))
     e.preventDefault();
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
@@ -68,6 +68,13 @@ const BOOST_DURATION      = 5;     // duración del efecto en segundos
 const POWERUP_DROP_CHANCE = 0.10;  // probabilidad por asteroide destruido
 const POWERUP_TTL         = 10;    // vida del ítem sin recoger
 const POWERUP_RADIUS      = 14;
+
+// ── Estrella fugaz ──
+const SHOOTING_STAR_SPEED   = 180;  // px/s fija
+const SHOOTING_STAR_TTL     = 6;    // segundos antes de desaparecer sola
+const SHOOTING_STAR_POINTS  = 200;  // puntos fijos al destruir
+const SHOOTING_STAR_MIN_INT = 7;    // intervalo mínimo de spawn (s)
+const SHOOTING_STAR_MAX_INT = 14;   // intervalo máximo de spawn (s)
 
 class Asteroid {
   constructor(x, y, size = 3) {
@@ -186,6 +193,46 @@ class PowerUp {
   }
 }
 
+// ── Estrella fugaz (asteroide especial) ────────────────────────────────────────
+class ShootingStar {
+  constructor(x, y) {
+    this.size   = randInt(1, 3);        // tamaño aleatorio
+    this.radius = RADII[this.size];      // usa lookup existente
+    this.x      = x;
+    this.y      = y;
+    this.dead   = false;
+    this.ttl    = SHOOTING_STAR_TTL;
+    const angle = rand(0, Math.PI * 2);
+    this.vx = Math.cos(angle) * SHOOTING_STAR_SPEED;
+    this.vy = Math.sin(angle) * SHOOTING_STAR_SPEED;
+  }
+
+  update(dt) {
+    this.x = wrap(this.x + this.vx * dt, W);
+    this.y = wrap(this.y + this.vy * dt, H);
+    this.ttl -= dt;
+    if (this.ttl <= 0) this.dead = true;
+  }
+
+  draw() {
+    // Parpadeo en el último segundo de vida
+    if (this.ttl < 1 && Math.floor(this.ttl * 8) % 2 === 0) return;
+
+    ctx.save();
+    ctx.translate(this.x, this.y);
+
+    // Glow amarillo
+    ctx.shadowColor = '#ff0';
+    ctx.shadowBlur  = 16;
+    ctx.fillStyle   = 'rgba(255, 230, 0, 0.85)';
+    ctx.beginPath();
+    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
 // ── Ship ──────────────────────────────────────────────────────────────────────
 class Ship {
   constructor() { this.reset(); }
@@ -210,17 +257,25 @@ class Ship {
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.boostTtl      > 0) this.boostTtl      -= dt;
 
-    const ROT   = 3.5;   // rad/s
     const THRUST = this.boostTtl > 0 ? 260 * BOOST_MULT : 260;  // px/s²
     const DRAG   = 0.987;
 
-    if (keys['ArrowLeft'])  this.angle -= ROT * dt;
-    if (keys['ArrowRight']) this.angle += ROT * dt;
+    // Movimiento direccional directo (8 direcciones)
+    let ax = 0, ay = 0;
+    if (keys['ArrowLeft'])  ax -= 1;
+    if (keys['ArrowRight']) ax += 1;
+    if (keys['ArrowUp'])    ay -= 1;
+    if (keys['ArrowDown'])  ay += 1;
 
-    this.thrusting = !!keys['ArrowUp'];
+    this.thrusting = (ax !== 0 || ay !== 0);
     if (this.thrusting) {
-      this.vx += Math.cos(this.angle) * THRUST * dt;
-      this.vy += Math.sin(this.angle) * THRUST * dt;
+      // Normalizar para que la diagonal no sea más rápida
+      const len = Math.hypot(ax, ay);
+      ax /= len; ay /= len;
+      this.vx += ax * THRUST * dt;
+      this.vy += ay * THRUST * dt;
+      // La nariz apunta hacia la dirección del movimiento
+      this.angle = Math.atan2(ay, ax);
     }
 
     this.vx *= DRAG;
@@ -320,10 +375,11 @@ class Particle {
 }
 
 // ── Estado del juego ──────────────────────────────────────────────────────────
-let ship, bullets, asteroids, particles, powerups;
+let ship, bullets, asteroids, particles, powerups, shootingStars;
 let score, lives, level;
-let state;      // 'playing' | 'dead' | 'gameover'
+let state;      // 'playing' | 'dead' | 'gameover' | 'paused'
 let deadTimer;
+let shootingStarTimer;
 
 function spawnAsteroids(count) {
   const SAFE_DIST = 130;
@@ -337,16 +393,34 @@ function spawnAsteroids(count) {
   }
 }
 
+function resetShootingStarTimer() {
+  shootingStarTimer = rand(SHOOTING_STAR_MIN_INT, SHOOTING_STAR_MAX_INT);
+}
+
+function spawnShootingStar() {
+  // Spawn desde un borde, posición aleatoria
+  const side = randInt(0, 3);
+  let x, y;
+  if      (side === 0) { x = rand(0, W); y = 0; }
+  else if (side === 1) { x = W;          y = rand(0, H); }
+  else if (side === 2) { x = rand(0, W); y = H; }
+  else                 { x = 0;          y = rand(0, H); }
+  shootingStars.push(new ShootingStar(x, y));
+  resetShootingStarTimer();
+}
+
 function initGame() {
   ship          = new Ship();
   bullets   = [];
   asteroids = [];
   particles = [];
   powerups  = [];
+  shootingStars = [];
   score  = 0;
   lives  = 3;
   level  = 1;
   state  = 'playing';
+  resetShootingStarTimer();
   spawnAsteroids(4);
 }
 
@@ -355,6 +429,7 @@ function nextLevel() {
   bullets   = [];
   particles = [];
   powerups  = [];
+  shootingStars = [];
   ship.reset();
   spawnAsteroids(3 + level);
 }
@@ -377,12 +452,20 @@ function killShip() {
 
 // ── Update ────────────────────────────────────────────────────────────────────
 function update(dt) {
+  // Pausa con Enter (toggle entre 'playing' y 'paused')
+  if (pressed('Enter')) {
+    if (state === 'playing') state = 'paused';
+    else if (state === 'paused') state = 'playing';
+  }
+  if (state === 'paused') return;
+
   if (state === 'gameover') {
     if (pressed('Space')) initGame();
     particles.forEach(p => p.update(dt));
     particles = particles.filter(p => !p.dead);
     powerups.forEach(p => p.update(dt));
     powerups = powerups.filter(p => !p.dead);
+    // Timer de estrella fugaz pausado en gameover
     return;
   }
 
@@ -393,6 +476,11 @@ function update(dt) {
     asteroids.forEach(a => a.update(dt));
     powerups.forEach(p => p.update(dt));
     powerups = powerups.filter(p => !p.dead);
+    // El timer sigue corriendo durante 'dead'
+    shootingStarTimer -= dt;
+    if (shootingStarTimer <= 0) spawnShootingStar();
+    shootingStars.forEach(s => s.update(dt));
+    shootingStars = shootingStars.filter(s => !s.dead);
     if (deadTimer <= 0) { state = 'playing'; ship.reset(); }
     return;
   }
@@ -408,9 +496,15 @@ function update(dt) {
   particles.forEach(p => p.update(dt));
   powerups.forEach(p => p.update(dt));
 
+  // Timer de estrella fugaz
+  shootingStarTimer -= dt;
+  if (shootingStarTimer <= 0) spawnShootingStar();
+  shootingStars.forEach(s => s.update(dt));
+
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
   powerups  = powerups.filter(p => !p.dead);
+  shootingStars = shootingStars.filter(s => !s.dead);
 
   // Bala vs asteroide
   const newAsteroids = [];
@@ -431,12 +525,35 @@ function update(dt) {
   asteroids = asteroids.filter(a => !a.dead).concat(newAsteroids);
   bullets   = bullets.filter(b => !b.dead);
 
+  // Bala vs estrella fugaz
+  for (const b of bullets) {
+    for (const s of shootingStars) {
+      if (!s.dead && !b.dead && dist(b, s) < s.radius) {
+        b.dead = true;
+        s.dead = true;
+        score += SHOOTING_STAR_POINTS;
+        explode(s.x, s.y, 10);
+      }
+    }
+  }
+  bullets = bullets.filter(b => !b.dead);
+  shootingStars = shootingStars.filter(s => !s.dead);
+
   // Nave vs asteroide
   if (ship.invincible <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
         killShip();
         break;
+      }
+    }
+    // Nave vs estrella fugaz
+    if (!ship.dead) {
+      for (const s of shootingStars) {
+        if (dist(ship, s) < ship.radius + s.radius * 0.82) {
+          killShip();
+          break;
+        }
       }
     }
   }
@@ -526,11 +643,14 @@ function draw() {
   particles.forEach(p => p.draw());
   asteroids.forEach(a => a.draw());
   powerups.forEach(p => p.draw());
+  shootingStars.forEach(s => s.draw());
   bullets.forEach(b => b.draw());
   ship.draw();
 
   drawHUD();
 
+  if (state === 'paused')
+    drawOverlay('PAUSA', 'ENTER PARA CONTINUAR');
   if (state === 'gameover')
     drawOverlay('GAME OVER', `PUNTAJE: ${score}   —   ESPACIO PARA REINICIAR`);
 }
