@@ -76,6 +76,20 @@ const SHOOTING_STAR_POINTS  = 200;  // puntos fijos al destruir
 const SHOOTING_STAR_MIN_INT = 7;    // intervalo mínimo de spawn (s)
 const SHOOTING_STAR_MAX_INT = 14;   // intervalo máximo de spawn (s)
 
+// ── Agujero de gusano ──
+const WORMHOLE_TTL       = 4;     // segundos de vida
+const WORMHOLE_RADIUS    = 120;   // radio de succión
+const WORMHOLE_PULL      = 420;   // fuerza de atracción (px/s²)
+const WORMHOLE_SUCTION   = 22;    // distancia a la que se destruye (px)
+const WORMHOLE_MIN_INT   = 8;     // intervalo mínimo de spawn (s)
+const WORMHOLE_MAX_INT   = 14;    // intervalo máximo de spawn (s)
+
+// ── Power-up "Escudo" ──
+const SHIELD_DURATION    = 5;     // duración del efecto en segundos
+const SHIELD_DROP_CHANCE = 0.10;  // probabilidad por asteroide destruido
+const SHIELD_PICKUP_TTL  = 10;    // vida del ítem sin recoger
+const SHIELD_RADIUS      = 14;    // radio del ítem
+
 class Asteroid {
   constructor(x, y, size = 3) {
     this.x    = x;
@@ -193,6 +207,74 @@ class PowerUp {
   }
 }
 
+// ── ShieldPickup (Escudo) ──────────────────────────────────────────────────────
+class ShieldPickup {
+  constructor(x, y) {
+    this.x      = x;
+    this.y      = y;
+    this.radius = SHIELD_RADIUS;
+    this.dead   = false;
+    this.ttl    = SHIELD_PICKUP_TTL;
+    this.rot    = 0;
+    this.rotSpeed = rand(-1.2, 1.2);
+    const angle = rand(0, Math.PI * 2);
+    const speed = rand(20, 60);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+  }
+
+  update(dt) {
+    this.x   = wrap(this.x + this.vx * dt, W);
+    this.y   = wrap(this.y + this.vy * dt, H);
+    this.rot += this.rotSpeed * dt;
+    this.ttl -= dt;
+    if (this.ttl <= 0) this.dead = true;
+  }
+
+  draw() {
+    // Parpadeo en el último segundo de vida
+    if (this.ttl < 1 && Math.floor(this.ttl * 8) % 2 === 0) return;
+
+    ctx.save();
+    ctx.translate(this.x, this.y);
+
+    // Glow verde
+    ctx.shadowColor = '#0f0';
+    ctx.shadowBlur  = 12;
+
+    // Hexágono contorno
+    ctx.strokeStyle = '#0f0';
+    ctx.lineWidth   = 1.8;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + this.rot;
+      const px = Math.cos(a) * this.radius;
+      const py = Math.sin(a) * this.radius;
+      if (i === 0) ctx.moveTo(px, py);
+      else         ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // Icono de escudo (arco) en el interior
+    ctx.strokeStyle = '#0f0';
+    ctx.lineWidth   = 1.6;
+    ctx.beginPath();
+    ctx.arc(0, 1, 7, Math.PI, 0);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-7, 1);
+    ctx.lineTo(-7, 5);
+    ctx.lineTo(7, 5);
+    ctx.lineTo(7, 1);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+}
+
 // ── Estrella fugaz (asteroide especial) ────────────────────────────────────────
 class ShootingStar {
   constructor(x, y) {
@@ -233,6 +315,55 @@ class ShootingStar {
   }
 }
 
+// ── Agujero de gusano ──────────────────────────────────────────────────────────
+class Wormhole {
+  constructor(x, y) {
+    this.x      = x;
+    this.y      = y;
+    this.radius = WORMHOLE_RADIUS;
+    this.dead   = false;
+    this.ttl    = WORMHOLE_TTL;
+    this.rot    = 0;
+    this.rotSpeed = rand(2, 4);
+  }
+
+  update(dt) {
+    this.rot += this.rotSpeed * dt;
+    this.ttl -= dt;
+    if (this.ttl <= 0) this.dead = true;
+  }
+
+  draw() {
+    // Parpadeo en el último segundo de vida
+    if (this.ttl < 1 && Math.floor(this.ttl * 8) % 2 === 0) return;
+
+    ctx.save();
+    ctx.translate(this.x, this.y);
+
+    // Anillo tenue del radio de succión
+    ctx.strokeStyle = 'rgba(160, 0, 255, 0.18)';
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Espiral púrpura: tres arcos concéntricos girando en sentidos alternos
+    ctx.shadowColor = '#a0f';
+    ctx.shadowBlur  = 18;
+    ctx.strokeStyle = '#c3f';
+    ctx.lineWidth   = 2.2;
+    const rings = [10, 20, 30];
+    for (let i = 0; i < rings.length; i++) {
+      const dir = i % 2 === 0 ? 1 : -1;
+      ctx.beginPath();
+      ctx.arc(0, 0, rings[i], this.rot * dir, this.rot * dir + Math.PI * 1.5);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+}
+
 // ── Ship ──────────────────────────────────────────────────────────────────────
 class Ship {
   constructor() { this.reset(); }
@@ -248,6 +379,7 @@ class Ship {
     this.invincible    = 3;
     this.shootCooldown = 0;
     this.boostTtl      = 0;
+    this.shieldTtl     = 0;
     this.dead          = false;
   }
 
@@ -256,6 +388,7 @@ class Ship {
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.boostTtl      > 0) this.boostTtl      -= dt;
+    if (this.shieldTtl     > 0) this.shieldTtl     -= dt;
 
     const THRUST = this.boostTtl > 0 ? 260 * BOOST_MULT : 260;  // px/s²
     const DRAG   = 0.987;
@@ -315,7 +448,23 @@ class Ship {
       ctx.restore();
     }
 
-    ctx.strokeStyle = this.boostTtl > 0 ? '#0ff' : '#fff';
+    // Aura del power-up Escudo
+    if (this.shieldTtl > 0) {
+      ctx.save();
+      ctx.shadowColor = '#0f0';
+      ctx.shadowBlur  = 14;
+      ctx.strokeStyle = 'rgba(0,255,0,0.55)';
+      ctx.lineWidth   = 1.4;
+      ctx.beginPath();
+      ctx.arc(0, 0, 20, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Tinte del fuselaje: Escudo (verde) tiene prioridad, luego Velocidad (cian)
+    ctx.strokeStyle = this.shieldTtl > 0 ? '#0f0'
+                    : this.boostTtl > 0 ? '#0ff'
+                    : '#fff';
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
 
@@ -375,11 +524,11 @@ class Particle {
 }
 
 // ── Estado del juego ──────────────────────────────────────────────────────────
-let ship, bullets, asteroids, particles, powerups, shootingStars;
+let ship, bullets, asteroids, particles, powerups, shootingStars, wormholes, shieldPickups;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover' | 'paused'
 let deadTimer;
-let shootingStarTimer;
+let shootingStarTimer, wormholeTimer;
 
 function spawnAsteroids(count) {
   const SAFE_DIST = 130;
@@ -409,6 +558,18 @@ function spawnShootingStar() {
   resetShootingStarTimer();
 }
 
+function resetWormholeTimer() {
+  wormholeTimer = rand(WORMHOLE_MIN_INT, WORMHOLE_MAX_INT);
+}
+
+function spawnWormhole() {
+  // Posición aleatoria en el área de juego (no desde borde)
+  const x = rand(80, W - 80);
+  const y = rand(80, H - 80);
+  wormholes.push(new Wormhole(x, y));
+  resetWormholeTimer();
+}
+
 function initGame() {
   ship          = new Ship();
   bullets   = [];
@@ -416,11 +577,14 @@ function initGame() {
   particles = [];
   powerups  = [];
   shootingStars = [];
+  wormholes     = [];
+  shieldPickups = [];
   score  = 0;
   lives  = 3;
   level  = 1;
   state  = 'playing';
   resetShootingStarTimer();
+  resetWormholeTimer();
   spawnAsteroids(4);
 }
 
@@ -430,6 +594,8 @@ function nextLevel() {
   particles = [];
   powerups  = [];
   shootingStars = [];
+  wormholes     = [];
+  shieldPickups = [];
   ship.reset();
   spawnAsteroids(3 + level);
 }
@@ -450,6 +616,48 @@ function killShip() {
   }
 }
 
+// Succión del agujero de gusano sobre asteroides y estrellas fugaces.
+// Atrae dentro del radio y destruye (con puntos, sin split) al acercarse.
+function applyWormholes(dt) {
+  for (const w of wormholes) {
+    // Asteroides
+    for (const a of asteroids) {
+      if (a.dead) continue;
+      const d = dist(w, a);
+      if (d < w.radius) {
+        // Atracción hacia el gusano
+        const ang = Math.atan2(w.y - a.y, w.x - a.x);
+        const pull = WORMHOLE_PULL * (1 - d / w.radius);
+        a.vx += Math.cos(ang) * pull * dt;
+        a.vy += Math.sin(ang) * pull * dt;
+        if (d < WORMHOLE_SUCTION) {
+          a.dead = true;
+          score += POINTS[a.size];
+          explode(a.x, a.y, a.size * 5);
+        }
+      }
+    }
+    // Estrellas fugaces
+    for (const s of shootingStars) {
+      if (s.dead) continue;
+      const d = dist(w, s);
+      if (d < w.radius) {
+        const ang = Math.atan2(w.y - s.y, w.x - s.x);
+        const pull = WORMHOLE_PULL * (1 - d / w.radius);
+        s.vx += Math.cos(ang) * pull * dt;
+        s.vy += Math.sin(ang) * pull * dt;
+        if (d < WORMHOLE_SUCTION) {
+          s.dead = true;
+          score += SHOOTING_STAR_POINTS;
+          explode(s.x, s.y, 10);
+        }
+      }
+    }
+  }
+  asteroids = asteroids.filter(a => !a.dead);
+  shootingStars = shootingStars.filter(s => !s.dead);
+}
+
 // ── Update ────────────────────────────────────────────────────────────────────
 function update(dt) {
   // Pausa con Enter (toggle entre 'playing' y 'paused')
@@ -465,7 +673,11 @@ function update(dt) {
     particles = particles.filter(p => !p.dead);
     powerups.forEach(p => p.update(dt));
     powerups = powerups.filter(p => !p.dead);
-    // Timer de estrella fugaz pausado en gameover
+    shieldPickups.forEach(s => s.update(dt));
+    shieldPickups = shieldPickups.filter(s => !s.dead);
+    wormholes.forEach(w => w.update(dt));
+    wormholes = wormholes.filter(w => !w.dead);
+    // Timers pausados en gameover
     return;
   }
 
@@ -476,11 +688,19 @@ function update(dt) {
     asteroids.forEach(a => a.update(dt));
     powerups.forEach(p => p.update(dt));
     powerups = powerups.filter(p => !p.dead);
-    // El timer sigue corriendo durante 'dead'
+    shieldPickups.forEach(s => s.update(dt));
+    shieldPickups = shieldPickups.filter(s => !s.dead);
+    // Los timers siguen corriendo durante 'dead'
     shootingStarTimer -= dt;
     if (shootingStarTimer <= 0) spawnShootingStar();
     shootingStars.forEach(s => s.update(dt));
     shootingStars = shootingStars.filter(s => !s.dead);
+    wormholeTimer -= dt;
+    if (wormholeTimer <= 0) spawnWormhole();
+    wormholes.forEach(w => w.update(dt));
+    // La succión del gusano sigue activa durante 'dead'
+    applyWormholes(dt);
+    wormholes = wormholes.filter(w => !w.dead);
     if (deadTimer <= 0) { state = 'playing'; ship.reset(); }
     return;
   }
@@ -495,16 +715,24 @@ function update(dt) {
   asteroids.forEach(a => a.update(dt));
   particles.forEach(p => p.update(dt));
   powerups.forEach(p => p.update(dt));
+  shieldPickups.forEach(s => s.update(dt));
 
   // Timer de estrella fugaz
   shootingStarTimer -= dt;
   if (shootingStarTimer <= 0) spawnShootingStar();
   shootingStars.forEach(s => s.update(dt));
 
+  // Timer de agujero de gusano
+  wormholeTimer -= dt;
+  if (wormholeTimer <= 0) spawnWormhole();
+  wormholes.forEach(w => w.update(dt));
+
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
   powerups  = powerups.filter(p => !p.dead);
+  shieldPickups = shieldPickups.filter(s => !s.dead);
   shootingStars = shootingStars.filter(s => !s.dead);
+  wormholes = wormholes.filter(w => !w.dead);
 
   // Bala vs asteroide
   const newAsteroids = [];
@@ -519,6 +747,9 @@ function update(dt) {
         // Drop de power-up "Velocidad"
         if (Math.random() < POWERUP_DROP_CHANCE)
           powerups.push(new PowerUp(a.x, a.y));
+        // Drop de power-up "Escudo" (independiente del de Velocidad)
+        if (Math.random() < SHIELD_DROP_CHANCE)
+          shieldPickups.push(new ShieldPickup(a.x, a.y));
       }
     }
   }
@@ -539,15 +770,28 @@ function update(dt) {
   bullets = bullets.filter(b => !b.dead);
   shootingStars = shootingStars.filter(s => !s.dead);
 
+  // Succión del agujero de gusano
+  applyWormholes(dt);
+
   // Nave vs asteroide
-  if (ship.invincible <= 0) {
+  if (ship.shieldTtl > 0) {
+    // Escudo activo: destruye asteroides al contacto, da puntos, no se divide
+    for (const a of asteroids) {
+      if (!a.dead && dist(ship, a) < ship.radius + a.radius * 0.82) {
+        a.dead = true;
+        score += POINTS[a.size];
+        explode(a.x, a.y, a.size * 5);
+      }
+    }
+    asteroids = asteroids.filter(a => !a.dead);
+  } else if (ship.invincible <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
         killShip();
         break;
       }
     }
-    // Nave vs estrella fugaz
+    // Nave vs estrella fugaz (el Escudo no destruye estrellas, pero sí inmuniza)
     if (!ship.dead) {
       for (const s of shootingStars) {
         if (dist(ship, s) < ship.radius + s.radius * 0.82) {
@@ -568,6 +812,15 @@ function update(dt) {
       }
     }
     powerups = powerups.filter(p => !p.dead);
+
+    for (const s of shieldPickups) {
+      if (!s.dead && dist(ship, s) < ship.radius + s.radius) {
+        s.dead = true;
+        ship.shieldTtl = SHIELD_DURATION;   // refresca (no apila)
+        explode(s.x, s.y, 8);
+      }
+    }
+    shieldPickups = shieldPickups.filter(s => !s.dead);
   }
 
   // Nivel completado
@@ -618,6 +871,24 @@ function drawHUD() {
     ctx.fillStyle = '#fff';
   }
 
+  // Timer del power-up Escudo
+  if (ship.shieldTtl > 0) {
+    ctx.fillStyle = '#0f0';
+    ctx.fillText(`ESCUDO  ${Math.ceil(ship.shieldTtl)}s`, 14, 78);
+
+    const barX = 14, barY = 84, barW = 120, barH = 6;
+    const ratio = ship.shieldTtl / SHIELD_DURATION;
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = '#0f0';
+    ctx.fillRect(barX, barY, barW * ratio, barH);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barW, barH);
+
+    ctx.fillStyle = '#fff';
+  }
+
   ctx.textAlign = 'center';
   ctx.fillText(`NIVEL ${level}`, W / 2, 26);
 
@@ -643,6 +914,8 @@ function draw() {
   particles.forEach(p => p.draw());
   asteroids.forEach(a => a.draw());
   powerups.forEach(p => p.draw());
+  shieldPickups.forEach(s => s.draw());
+  wormholes.forEach(w => w.draw());
   shootingStars.forEach(s => s.draw());
   bullets.forEach(b => b.draw());
   ship.draw();
