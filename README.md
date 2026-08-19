@@ -26,9 +26,24 @@ Luego visita `http://localhost:3000`.
 
 | Tecla     | Acción     |
 | --------- | ---------- |
-| `←` `→`   | Rotar nave |
-| `↑`       | Propulsar  |
+| `←` `→` `↑` `↓` | Propulsar en 8 direcciones |
 | `Espacio` | Disparar   |
+| `Enter`   | Pausa / confirmar en menús |
+
+## Skins
+
+Antes de iniciar la partida se muestra un **menú de selección** donde puedes elegir la apariencia de la nave. Cada skin define color del fuselaje, forma y color de la llama del propulsor.
+
+- Navega con `←` `→` y confirma con `Enter`.
+- La elección se guarda en `localStorage` y se recuerda entre sesiones.
+
+| Skin       | Color    |
+| ---------- | -------- |
+| Clásica    | Blanco   |
+| Carmesí    | Rojo     |
+| Esmeralda  | Verde    |
+| Safiro     | Azul     |
+| Solar      | Ámbar    |
 
 ## Puntuación
 
