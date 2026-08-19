@@ -90,6 +90,13 @@ const SHIELD_DROP_CHANCE = 0.10;  // probabilidad por asteroide destruido
 const SHIELD_PICKUP_TTL  = 10;    // vida del ítem sin recoger
 const SHIELD_RADIUS      = 14;    // radio del ítem
 
+// ── Power-up "Triple disparo" ──
+const TRIPLE_DURATION    = 5;     // duración del efecto en segundos
+const TRIPLE_DROP_CHANCE = 0.10;  // probabilidad por asteroide destruido
+const TRIPLE_PICKUP_TTL  = 10;    // vida del ítem sin recoger
+const TRIPLE_RADIUS      = 14;    // radio del ítem
+const TRIPLE_SPACING     = 8;     // separación entre balas a lo largo de la nariz
+
 class Asteroid {
   constructor(x, y, size = 3) {
     this.x    = x;
@@ -275,6 +282,60 @@ class ShieldPickup {
   }
 }
 
+// ── TriplePickup (Triple disparo) ──────────────────────────────────────────────
+class TriplePickup {
+  constructor(x, y) {
+    this.x      = x;
+    this.y      = y;
+    this.radius = TRIPLE_RADIUS;
+    this.dead   = false;
+    this.ttl    = TRIPLE_PICKUP_TTL;
+    this.rot    = 0;
+    this.rotSpeed = rand(-1.2, 1.2);
+    const angle = rand(0, Math.PI * 2);
+    const speed = rand(20, 60);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+  }
+
+  update(dt) {
+    this.x   = wrap(this.x + this.vx * dt, W);
+    this.y   = wrap(this.y + this.vy * dt, H);
+    this.rot += this.rotSpeed * dt;
+    this.ttl -= dt;
+    if (this.ttl <= 0) this.dead = true;
+  }
+
+  draw() {
+    // Parpadeo en el último segundo de vida
+    if (this.ttl < 1 && Math.floor(this.ttl * 8) % 2 === 0) return;
+
+    ctx.save();
+    ctx.translate(this.x, this.y);
+
+    // Glow naranja
+    ctx.shadowColor = '#f80';
+    ctx.shadowBlur  = 12;
+
+    // Círculo contorno
+    ctx.strokeStyle = '#f80';
+    ctx.lineWidth   = 1.8;
+    ctx.beginPath();
+    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // Tres barritas verticales en el interior
+    ctx.fillStyle = '#f80';
+    for (const dx of [-5, 0, 5]) {
+      ctx.fillRect(dx - 1, -6, 2, 12);
+    }
+
+    ctx.restore();
+  }
+}
+
 // ── Estrella fugaz (asteroide especial) ────────────────────────────────────────
 class ShootingStar {
   constructor(x, y) {
@@ -380,6 +441,7 @@ class Ship {
     this.shootCooldown = 0;
     this.boostTtl      = 0;
     this.shieldTtl     = 0;
+    this.tripleTtl     = 0;
     this.dead          = false;
   }
 
@@ -389,6 +451,7 @@ class Ship {
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.boostTtl      > 0) this.boostTtl      -= dt;
     if (this.shieldTtl     > 0) this.shieldTtl     -= dt;
+    if (this.tripleTtl     > 0) this.tripleTtl     -= dt;
 
     const THRUST = this.boostTtl > 0 ? 260 * BOOST_MULT : 260;  // px/s²
     const DRAG   = 0.987;
@@ -421,6 +484,17 @@ class Ship {
     if (this.shootCooldown > 0 || this.dead) return [];
     this.shootCooldown = 0.2;
     const NOSE = 21;
+    if (this.tripleTtl > 0) {
+      // Triple disparo: 3 balas en fila a lo largo de la nariz, mismo ángulo
+      const shots = [];
+      for (let i = 0; i < 3; i++) {
+        const d = NOSE + i * TRIPLE_SPACING;
+        const ox = this.x + Math.cos(this.angle) * d;
+        const oy = this.y + Math.sin(this.angle) * d;
+        shots.push(new Bullet(ox, oy, this.angle));
+      }
+      return shots;
+    }
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
     return [new Bullet(ox, oy, this.angle)];
@@ -461,9 +535,23 @@ class Ship {
       ctx.restore();
     }
 
-    // Tinte del fuselaje: Escudo (verde) tiene prioridad, luego Velocidad (cian)
+    // Aura del power-up Triple disparo
+    if (this.tripleTtl > 0) {
+      ctx.save();
+      ctx.shadowColor = '#f80';
+      ctx.shadowBlur  = 14;
+      ctx.strokeStyle = 'rgba(255,136,0,0.55)';
+      ctx.lineWidth   = 1.4;
+      ctx.beginPath();
+      ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Tinte del fuselaje: Escudo (verde) > Velocidad (cian) > Triple (naranja) > blanco
     ctx.strokeStyle = this.shieldTtl > 0 ? '#0f0'
                     : this.boostTtl > 0 ? '#0ff'
+                    : this.tripleTtl > 0 ? '#f80'
                     : '#fff';
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
@@ -524,7 +612,7 @@ class Particle {
 }
 
 // ── Estado del juego ──────────────────────────────────────────────────────────
-let ship, bullets, asteroids, particles, powerups, shootingStars, wormholes, shieldPickups;
+let ship, bullets, asteroids, particles, powerups, shootingStars, wormholes, shieldPickups, triplePickups;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover' | 'paused'
 let deadTimer;
@@ -579,6 +667,7 @@ function initGame() {
   shootingStars = [];
   wormholes     = [];
   shieldPickups = [];
+  triplePickups = [];
   score  = 0;
   lives  = 3;
   level  = 1;
@@ -596,6 +685,7 @@ function nextLevel() {
   shootingStars = [];
   wormholes     = [];
   shieldPickups = [];
+  triplePickups = [];
   ship.reset();
   spawnAsteroids(3 + level);
 }
@@ -675,6 +765,8 @@ function update(dt) {
     powerups = powerups.filter(p => !p.dead);
     shieldPickups.forEach(s => s.update(dt));
     shieldPickups = shieldPickups.filter(s => !s.dead);
+    triplePickups.forEach(t => t.update(dt));
+    triplePickups = triplePickups.filter(t => !t.dead);
     wormholes.forEach(w => w.update(dt));
     wormholes = wormholes.filter(w => !w.dead);
     // Timers pausados en gameover
@@ -690,6 +782,8 @@ function update(dt) {
     powerups = powerups.filter(p => !p.dead);
     shieldPickups.forEach(s => s.update(dt));
     shieldPickups = shieldPickups.filter(s => !s.dead);
+    triplePickups.forEach(t => t.update(dt));
+    triplePickups = triplePickups.filter(t => !t.dead);
     // Los timers siguen corriendo durante 'dead'
     shootingStarTimer -= dt;
     if (shootingStarTimer <= 0) spawnShootingStar();
@@ -716,6 +810,7 @@ function update(dt) {
   particles.forEach(p => p.update(dt));
   powerups.forEach(p => p.update(dt));
   shieldPickups.forEach(s => s.update(dt));
+  triplePickups.forEach(t => t.update(dt));
 
   // Timer de estrella fugaz
   shootingStarTimer -= dt;
@@ -731,6 +826,7 @@ function update(dt) {
   particles = particles.filter(p => !p.dead);
   powerups  = powerups.filter(p => !p.dead);
   shieldPickups = shieldPickups.filter(s => !s.dead);
+  triplePickups = triplePickups.filter(t => !t.dead);
   shootingStars = shootingStars.filter(s => !s.dead);
   wormholes = wormholes.filter(w => !w.dead);
 
@@ -750,6 +846,9 @@ function update(dt) {
         // Drop de power-up "Escudo" (independiente del de Velocidad)
         if (Math.random() < SHIELD_DROP_CHANCE)
           shieldPickups.push(new ShieldPickup(a.x, a.y));
+        // Drop de power-up "Triple disparo" (independiente de los demás)
+        if (Math.random() < TRIPLE_DROP_CHANCE)
+          triplePickups.push(new TriplePickup(a.x, a.y));
       }
     }
   }
@@ -821,6 +920,15 @@ function update(dt) {
       }
     }
     shieldPickups = shieldPickups.filter(s => !s.dead);
+
+    for (const t of triplePickups) {
+      if (!t.dead && dist(ship, t) < ship.radius + t.radius) {
+        t.dead = true;
+        ship.tripleTtl = TRIPLE_DURATION;   // refresca (no apila)
+        explode(t.x, t.y, 8);
+      }
+    }
+    triplePickups = triplePickups.filter(t => !t.dead);
   }
 
   // Nivel completado
@@ -889,6 +997,24 @@ function drawHUD() {
     ctx.fillStyle = '#fff';
   }
 
+  // Timer del power-up Triple disparo
+  if (ship.tripleTtl > 0) {
+    ctx.fillStyle = '#f80';
+    ctx.fillText(`TRIPLE  ${Math.ceil(ship.tripleTtl)}s`, 14, 110);
+
+    const barX = 14, barY = 116, barW = 120, barH = 6;
+    const ratio = ship.tripleTtl / TRIPLE_DURATION;
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = '#f80';
+    ctx.fillRect(barX, barY, barW * ratio, barH);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barW, barH);
+
+    ctx.fillStyle = '#fff';
+  }
+
   ctx.textAlign = 'center';
   ctx.fillText(`NIVEL ${level}`, W / 2, 26);
 
@@ -915,6 +1041,7 @@ function draw() {
   asteroids.forEach(a => a.draw());
   powerups.forEach(p => p.draw());
   shieldPickups.forEach(s => s.draw());
+  triplePickups.forEach(t => t.draw());
   wormholes.forEach(w => w.draw());
   shootingStars.forEach(s => s.draw());
   bullets.forEach(b => b.draw());
