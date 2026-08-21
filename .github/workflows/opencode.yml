@@ -43,6 +43,7 @@ jobs:
         env:
           MODEL: opencode-go/glm-5.2
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           USE_GITHUB_TOKEN: 'true'
           DEBUG: '*'
           OPENCODE_DEBUG: '1'
