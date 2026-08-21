@@ -427,37 +427,57 @@ class Wormhole {
 
 // ── Skins ─────────────────────────────────────────────────────────────────────
 // Cada skin define color del fuselaje, color de la llama y polígono local
-// con la nariz apuntando hacia +x (convención de la nave).
+// con la nariz apuntando hacia +x (convención de la nave). `scale` multiplica
+// el tamaño visual, el radio de colisión y la posición de la nariz; `pointsMult`
+// multiplica los puntos obtenidos al destruir enemigos.
 const SKINS = [
   {
     name:  'CLÁSICA',
     color: '#fff',
     flame: 'rgba(255, 130, 0, 0.85)',
     verts: [[ 20,  0], [-12, -9], [ -7,  0], [-12,  9]],
+    scale: 1,
+    pointsMult: 1,
   },
   {
     name:  'CARMESÍ',
     color: '#f44',
     flame: 'rgba(255, 200, 0, 0.85)',
     verts: [[ 20,  0], [-14, -6], [ -8,  0], [-14,  6]],
+    scale: 1,
+    pointsMult: 1,
   },
   {
     name:  'ESMERALDA',
     color: '#3f3',
     flame: 'rgba(0, 255, 170, 0.85)',
     verts: [[ 20,  0], [-10, -10], [ -7, -3], [-12,  0], [ -7,  3], [-10, 10]],
+    scale: 1,
+    pointsMult: 1,
   },
   {
     name:  'SAFIRO',
     color: '#4af',
     flame: 'rgba(120, 200, 255, 0.85)',
     verts: [[ 20,  0], [  6, -8], [-12, -6], [ -6,  0], [-12,  6], [  6,  8]],
+    scale: 1,
+    pointsMult: 1,
   },
   {
     name:  'SOLAR',
     color: '#fd0',
     flame: 'rgba(255, 80, 0, 0.9)',
     verts: [[ 20,  0], [  8, -8], [-10, -8], [ -6,  0], [-10,  8], [  8,  8]],
+    scale: 1,
+    pointsMult: 1,
+  },
+  {
+    name:  'MORADA',
+    color: '#a0f',
+    flame: 'rgba(220, 120, 255, 0.9)',
+    verts: [[ 20,  0], [-12, -9], [ -7,  0], [-12,  9]],
+    scale: 2,
+    pointsMult: 2,
   },
 ];
 
@@ -487,8 +507,8 @@ class Ship {
     this.angle  = -Math.PI / 2;
     this.vx     = 0;
     this.vy     = 0;
-    this.radius = 12;
     this.skinIndex = currentSkin;
+    this.radius = 12 * SKINS[this.skinIndex].scale;
     this.thrusting     = false;
     this.invincible    = 3;
     this.shootCooldown = 0;
@@ -536,7 +556,7 @@ class Ship {
   tryShoot() {
     if (this.shootCooldown > 0 || this.dead) return [];
     this.shootCooldown = 0.2;
-    const NOSE = 21;
+    const NOSE = 21 * SKINS[this.skinIndex].scale;
     if (this.tripleTtl > 0) {
       // Triple disparo: 3 balas en fila a lo largo de la nariz, mismo ángulo
       const shots = [];
@@ -558,9 +578,12 @@ class Ship {
     // Parpadeo durante invencibilidad de reaparición
     if (this.invincible > 0 && Math.floor(this.invincible * 8) % 2 === 0) return;
 
+    const skin = SKINS[this.skinIndex];
+
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
+    ctx.scale(skin.scale, skin.scale);
 
     // Aura del power-up Velocidad
     if (this.boostTtl > 0) {
@@ -602,7 +625,6 @@ class Ship {
     }
 
     // Tinte del fuselaje: respeta el color del skin; el aura indica el power-up
-    const skin = SKINS[this.skinIndex];
     ctx.strokeStyle = skin.color;
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
@@ -750,6 +772,11 @@ function explode(x, y, count = 8) {
   for (let i = 0; i < count; i++) particles.push(new Particle(x, y));
 }
 
+// Suma puntos aplicando el multiplicador del skin seleccionado.
+function addScore(amount) {
+  score += amount * SKINS[ship.skinIndex].pointsMult;
+}
+
 function killShip() {
   explode(ship.x, ship.y, 14);
   ship.dead = true;
@@ -778,7 +805,7 @@ function applyWormholes(dt) {
         a.vy += Math.sin(ang) * pull * dt;
         if (d < WORMHOLE_SUCTION) {
           a.dead = true;
-          score += POINTS[a.size];
+          addScore(POINTS[a.size]);
           explode(a.x, a.y, a.size * 5);
         }
       }
@@ -794,7 +821,7 @@ function applyWormholes(dt) {
         s.vy += Math.sin(ang) * pull * dt;
         if (d < WORMHOLE_SUCTION) {
           s.dead = true;
-          score += SHOOTING_STAR_POINTS;
+          addScore(SHOOTING_STAR_POINTS);
           explode(s.x, s.y, 10);
         }
       }
@@ -907,7 +934,7 @@ function update(dt) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
         b.dead = true;
         a.dead = true;
-        score += POINTS[a.size];
+        addScore(POINTS[a.size]);
         explode(a.x, a.y, a.size * 5);
         newAsteroids.push(...a.split());
         // Drop de power-up "Velocidad"
@@ -931,7 +958,7 @@ function update(dt) {
       if (!s.dead && !b.dead && dist(b, s) < s.radius) {
         b.dead = true;
         s.dead = true;
-        score += SHOOTING_STAR_POINTS;
+        addScore(SHOOTING_STAR_POINTS);
         explode(s.x, s.y, 10);
       }
     }
@@ -948,7 +975,7 @@ function update(dt) {
     for (const a of asteroids) {
       if (!a.dead && dist(ship, a) < ship.radius + a.radius * 0.82) {
         a.dead = true;
-        score += POINTS[a.size];
+        addScore(POINTS[a.size]);
         explode(a.x, a.y, a.size * 5);
       }
     }
@@ -1029,7 +1056,14 @@ function drawHUD() {
   ctx.font = '15px monospace';
 
   ctx.textAlign = 'left';
+  const mult = SKINS[ship.skinIndex].pointsMult;
   ctx.fillText(`SCORE  ${score}`, 14, 26);
+  if (mult > 1) {
+    const skin = SKINS[ship.skinIndex];
+    ctx.fillStyle = skin.color;
+    ctx.fillText(`x${mult}`, 14 + ctx.measureText(`SCORE  ${score}`).width + 8, 26);
+    ctx.fillStyle = '#fff';
+  }
 
   // Timer del power-up Velocidad
   if (ship.boostTtl > 0) {
@@ -1119,7 +1153,8 @@ function drawMenu() {
   ctx.fillText('‹', W / 2 - 200, H / 2 + 8);
   ctx.fillText('›', W / 2 + 200, H / 2 + 8);
 
-  // Preview del skin: nave estática apuntando hacia arriba
+  // Preview del skin: nave estática apuntando hacia arriba (refleja la escala real)
+  const previewScale = 2 * skin.scale;
   ctx.save();
   ctx.translate(W / 2, H / 2 + 10);
   ctx.rotate(-Math.PI / 2);
@@ -1130,9 +1165,9 @@ function drawMenu() {
   ctx.shadowColor = skin.color;
   ctx.shadowBlur  = 12;
   ctx.beginPath();
-  ctx.moveTo(skin.verts[0][0] * 2, skin.verts[0][1] * 2);
+  ctx.moveTo(skin.verts[0][0] * previewScale, skin.verts[0][1] * previewScale);
   for (let i = 1; i < skin.verts.length; i++)
-    ctx.lineTo(skin.verts[i][0] * 2, skin.verts[i][1] * 2);
+    ctx.lineTo(skin.verts[i][0] * previewScale, skin.verts[i][1] * previewScale);
   ctx.closePath();
   ctx.stroke();
   ctx.restore();
@@ -1143,10 +1178,25 @@ function drawMenu() {
   ctx.fillStyle   = skin.color;
   ctx.fillText(skin.name, W / 2, H / 2 + 90);
 
+  // Atributos especiales (tamaño y puntos)
+  ctx.font      = '15px monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  let attrY = H / 2 + 112;
+  if (skin.scale > 1) {
+    ctx.fillText(`TAMAÑO x${skin.scale}`, W / 2, attrY);
+    attrY += 20;
+  }
+  if (skin.pointsMult > 1) {
+    ctx.fillStyle = '#fc6';
+    ctx.fillText(`PUNTOS x${skin.pointsMult}`, W / 2, attrY);
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    attrY += 20;
+  }
+
   // Posición
   ctx.font      = '16px monospace';
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.fillText(`${menuIndex + 1} / ${SKINS.length}`, W / 2, H / 2 + 116);
+  ctx.fillText(`${menuIndex + 1} / ${SKINS.length}`, W / 2, attrY);
 
   // Ayuda
   ctx.font      = '16px monospace';
