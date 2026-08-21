@@ -124,7 +124,8 @@ jobs:
           )
 
           # ── Asignar etiquetas según coincidencias ──
-          ASSIGN_LABELS=()
+          # bug se asigna por defecto a todo issue nuevo; se suman las demás detectadas
+          ASSIGN_LABELS=("bug")
           for entry in "${LABELS_DATA[@]}"; do
             name="${entry%%|*}"
             regex="${entry#*|}"
