@@ -73,6 +73,26 @@ jobs:
       ISSUE_BODY: ${{ github.event.issue.body }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
+      - name: Crear etiquetas de triage
+        shell: bash
+        run: |
+          set -euo pipefail
+          # ── Definición de etiquetas: "nombre|color|descripción" ──
+          LABELS_DATA=(
+            "bug|d73a4a|Algo no funciona como debería"
+            "enhancement|a2eeef|Solicitud de nueva funcionalidad o mejora"
+            "question|d876e3|Duda o consulta"
+            "documentation|0075ca|Relacionado a documentación"
+            "performance|fbca04|Problema de rendimiento"
+          )
+          for entry in "${LABELS_DATA[@]}"; do
+            name="${entry%%|*}"
+            rest="${entry#*|}"
+            color="${rest%%|*}"
+            desc="${rest#*|}"
+            gh label create "${name}" --color "${color}" --description "${desc}" 2>/dev/null || true
+          done
+
       - name: Formatear issue y asignar etiquetas
         shell: bash
         run: |
@@ -94,25 +114,21 @@ jobs:
           TEXT=$(printf '%s\n%s' "${ISSUE_TITLE}" "${ISSUE_BODY}")
           TEXT_LOWER=$(printf '%s' "${TEXT}" | tr '[:upper:]' '[:lower:]')
 
-          # ── Definición de etiquetas y palabras clave ──
-          # Formato: "nombre|color|regex"
+          # ── Palabras clave por etiqueta: "nombre|regex" ──
           LABELS_DATA=(
-            "bug|d73a4a|\\bbug\\b|\\berror\\b|\\bfallo\\b|\\bfalla\\b|\\bcrash\\b|\\bcuelga\\b|\\bexcepci[oó]n\\b|no funciona|\\broto\\b|\\bglitch\\b"
-            "enhancement|a2eeef|\\bfeature\\b|\\bsugerencia\\b|\\bmejora\\b|\\bidea\\b|\\bpropuesta\\b|deber[ií]a|estar[ií]a bueno|\\bagregar\\b|\\ba[ñn]adir\\b"
-            "question|d876e3|\\bpregunta\\b|\\bduda\\b|\\bc[oó]mo\\b|\\bayuda\\b|\\bconsulta\\b|no entiendo"
-            "documentation|0075ca|\\bdocs\\b|\\bdocumentaci[oó]n\\b|\\breadme\\b|\\bwiki\\b|\\bcomentario\\b"
-            "performance|fbca04|\\brendimiento\\b|\\blento\\b|\\blag\\b|\\bfps\\b|\\bframe\\b|\\btarda\\b|\\bstutter\\b"
+            "bug|\\bbug\\b|\\berror\\b|\\bfallo\\b|\\bfalla\\b|\\bcrash\\b|\\bcuelga\\b|\\bexcepci[oó]n\\b|no funciona|\\broto\\b|\\bglitch\\b"
+            "enhancement|\\bfeature\\b|\\bsugerencia\\b|\\bmejora\\b|\\bidea\\b|\\bpropuesta\\b|deber[ií]a|estar[ií]a bueno|\\bagregar\\b|\\ba[ñn]adir\\b"
+            "question|\\bpregunta\\b|\\bduda\\b|\\bc[oó]mo\\b|\\bayuda\\b|\\bconsulta\\b|no entiendo"
+            "documentation|\\bdocs\\b|\\bdocumentaci[oó]n\\b|\\breadme\\b|\\bwiki\\b|\\bcomentario\\b"
+            "performance|\\brendimiento\\b|\\blento\\b|\\blag\\b|\\bfps\\b|\\bframe\\b|\\btarda\\b|\\bstutter\\b"
           )
 
-          # ── Crear y asignar etiquetas según coincidencias ──
+          # ── Asignar etiquetas según coincidencias ──
           ASSIGN_LABELS=()
           for entry in "${LABELS_DATA[@]}"; do
             name="${entry%%|*}"
-            rest="${entry#*|}"
-            color="${rest%%|*}"
-            regex="${rest#*|}"
+            regex="${entry#*|}"
             if printf '%s' "${TEXT_LOWER}" | grep -qiE "${regex}"; then
-              gh label create "${name}" --color "${color}" --description "Triage automático" 2>/dev/null || true
               ASSIGN_LABELS+=("${name}")
             fi
           done
