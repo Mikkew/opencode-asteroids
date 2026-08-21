@@ -16,19 +16,32 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-      contents: read
-      pull-requests: read
-      issues: read
+      contents: write
+      pull-requests: write
+      issues: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      - name: Run opencode
-        uses: anomalyco/opencode/github@latest
+      - name: Install opencode
+        shell: bash
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Add opencode to PATH
+        shell: bash
+        run: echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+
+      - name: opencode version (diagnóstico)
+        shell: bash
+        run: opencode --version
+
+      - name: Run opencode (debug)
+        shell: bash
+        run: opencode github run
         env:
+          MODEL: opencode-go/glm-5.2
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-        with:
-          model: opencode-go/glm-5.2
-          use_github_token: true
+          DEBUG: '*'
+          OPENCODE_DEBUG: '1'
